@@ -80,13 +80,14 @@ class PlotApp(QMainWindow):
             self.list_widget.clear()
             key = statement_type.lower().replace(' ', '')
             for column in self.data[key].columns:
-                self.list_widget.addItem(column)
+                if column != 'index':
+                    self.list_widget.addItem(column)
 
     def update_bar_plot(self):
-        if self.data:
-            statement_type = self.statement_type_combo.currentText().lower().replace(' ', '')
-            selected_items = [item.text() for item in self.list_widget.selectedItems()]
+        selected_items = [item.text() for item in self.list_widget.selectedItems()]
+        statement_type = self.statement_type_combo.currentText().lower().replace(' ', '')
 
+        if self.data and selected_items:
             self.ax.clear()
             num_items = len(selected_items)
             bar_width = 0.8 / num_items
