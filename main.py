@@ -117,7 +117,7 @@ def fetch_financials(ticker):
 
 def main():
     app = QApplication(sys.argv)
-    PlotApp()
+    ex = PlotApp()  # Variable declaration is necessary, possibly to prevent garbage collection
     sys.exit(app.exec_())
 
 
