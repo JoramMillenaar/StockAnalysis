@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
-                             QListWidget, QPushButton, QComboBox, QLineEdit, QLabel, QHBoxLayout)
+                             QPushButton, QComboBox, QLineEdit, QLabel, QHBoxLayout, QTableWidget,
+                             QTableWidgetItem, QHeaderView)
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from matplotlib.ticker import MaxNLocator
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -46,13 +46,15 @@ class PlotApp(QMainWindow):
         self.statement_type_combo.setEnabled(False)  # Disabled until data is fetched
         main_layout.addWidget(self.statement_type_combo)
 
-        self.list_widget = QListWidget(self)
-        self.list_widget.setSelectionMode(QListWidget.MultiSelection)
-        self.list_widget.setEnabled(False)  # Disabled until data is fetched
-        main_layout.addWidget(self.list_widget)
+        # Table displaying the financial statement
+        self.table_widget = QTableWidget(self)
+        self.table_widget.setSelectionBehavior(QTableWidget.SelectRows)
+        main_layout.addWidget(self.table_widget)
+        self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table_widget.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
         # Connect dropdown to update list function
-        self.statement_type_combo.currentTextChanged.connect(self.update_list_widget)
+        self.statement_type_combo.currentTextChanged.connect(self.update_table_widget)
 
         self.button = QPushButton('Update Chart', self)
         self.button.clicked.connect(self.update_bar_plot)
@@ -71,34 +73,53 @@ class PlotApp(QMainWindow):
         ticker = self.ticker_input.text().strip().upper()
         if ticker:
             self.data = fetch_financials(ticker)
-            self.update_list_widget('Income Statement')
+            self.update_table_widget('Income Statement')
             self.statement_type_combo.setEnabled(True)
-            self.list_widget.setEnabled(True)
+            self.table_widget.setEnabled(True)
             self.button.setEnabled(True)
             self.canvas.draw()
 
-    def update_list_widget(self, statement_type):
+    def update_table_widget(self, statement_type):
         if self.data:
-            self.list_widget.clear()
             key = statement_type.lower().replace(' ', '')
-            for column in self.data[key].columns:
-                self.list_widget.addItem(column)
+            df = self.data[key]
+            self.table_widget.setRowCount(len(df.columns))
+            self.table_widget.setColumnCount(len(df.index))
+            self.table_widget.setHorizontalHeaderLabels([idx.strftime('%Y-%m-%d') for idx in df.index])
+            self.table_widget.setVerticalHeaderLabels(df.columns)
+
+            # Define columns that should not be scaled (percentages or ratios)
+            no_scale_columns = ['Basic EPS', 'Diluted EPS', 'Tax Rate For Calcs', 'Tax Effect Of Unusual Items']
+
+            for i, col_name in enumerate(df.columns):
+                for j, date in enumerate(df.index):
+                    value = df.at[date, col_name]
+                    if col_name in no_scale_columns or statement_type == 'Metrics':
+                        # Format as percentage or leave as is for ratios
+                        item_text = f'{value:.2f}%' if 'Rate' in col_name else f'{value:.2f}'
+                    else:
+                        # Convert to thousands and format negative values with brackets
+                        item_text = f'({abs(value / 1000):,.0f})' if value < 0 else f'{value / 1000:,.0f}'
+                    item = QTableWidgetItem(item_text)
+                    self.table_widget.setItem(i, j, item)
 
     def update_bar_plot(self):
-        selected_items = [item.text() for item in self.list_widget.selectedItems()]
+        selected_rows = self.table_widget.selectionModel().selectedRows()
         statement_type = self.statement_type_combo.currentText().lower().replace(' ', '')
+        df = self.data[statement_type]
 
-        if self.data and selected_items:
+        if selected_rows:
             self.ax.clear()
-            num_items = len(selected_items)
-            bar_width = 0.8 / num_items
-            indices = np.arange(len(self.data[statement_type].index))
-            dates = self.data[statement_type].index
-            for i, column in enumerate(selected_items):
-                self.ax.bar(indices + i * bar_width, self.data[statement_type][column], width=bar_width, label=column)
+            indices = np.arange(len(df.index))
+            bar_width = 0.8 / len(selected_rows)
+
+            for i, row in enumerate(selected_rows):
+                metric_name = self.table_widget.verticalHeaderItem(row.row()).text()
+                self.ax.bar(indices + i * bar_width, df[metric_name], width=bar_width, label=metric_name)
+
             self.ax.legend()
             self.ax.set_xticks(indices)
-            self.ax.set_xticklabels([d.strftime('%Y-%m') for d in dates])
+            self.ax.set_xticklabels([d.strftime('%Y-%m-%d') for d in df.index])
             self.canvas.draw()
 
 
