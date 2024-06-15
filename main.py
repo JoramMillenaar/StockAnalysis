@@ -1,12 +1,15 @@
 import sys
 
 import numpy as np
+import pandas as pd
 import yfinance as yf
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
                              QListWidget, QPushButton, QComboBox, QLineEdit, QLabel, QHBoxLayout)
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.ticker import MaxNLocator
+
+pd.set_option('future.no_silent_downcasting', True)
 
 
 class PlotApp(QMainWindow):
@@ -39,7 +42,7 @@ class PlotApp(QMainWindow):
 
         # Dropdown to select the type of financial statement
         self.statement_type_combo = QComboBox(self)
-        self.statement_type_combo.addItems(['Income Statement', 'Cash Flow', 'Balance Sheet'])
+        self.statement_type_combo.addItems(['Income Statement', 'Cash Flow', 'Balance Sheet', 'Metrics'])
         self.statement_type_combo.setEnabled(False)  # Disabled until data is fetched
         main_layout.addWidget(self.statement_type_combo)
 
@@ -80,8 +83,7 @@ class PlotApp(QMainWindow):
             self.list_widget.clear()
             key = statement_type.lower().replace(' ', '')
             for column in self.data[key].columns:
-                if column != 'index':
-                    self.list_widget.addItem(column)
+                self.list_widget.addItem(column)
 
     def update_bar_plot(self):
         selected_items = [item.text() for item in self.list_widget.selectedItems()]
@@ -92,7 +94,7 @@ class PlotApp(QMainWindow):
             num_items = len(selected_items)
             bar_width = 0.8 / num_items
             indices = np.arange(len(self.data[statement_type].index))
-            dates = self.data[statement_type]['index']
+            dates = self.data[statement_type].index
             for i, column in enumerate(selected_items):
                 self.ax.bar(indices + i * bar_width, self.data[statement_type][column], width=bar_width, label=column)
             self.ax.legend()
@@ -104,15 +106,30 @@ class PlotApp(QMainWindow):
             self.canvas.draw()
 
 
+def compute_metrics(income_stmt, balance_sheet):
+    metrics_df = pd.DataFrame(index=income_stmt.index)
+
+    metrics_df['Operating Margin'] = income_stmt['Operating Income'].div(income_stmt['Total Revenue']).fillna(0)
+    metrics_df['Gross Margin'] = income_stmt['Gross Profit'].div(income_stmt['Total Revenue']).fillna(0)
+    metrics_df['Profit Margin'] = income_stmt['Net Income'].div(income_stmt['Total Revenue']).fillna(0)
+    metrics_df['Return on Assets'] = income_stmt['Net Income'].div(balance_sheet['Total Assets']).fillna(0)
+
+    capital_employed = balance_sheet['Total Assets'] - balance_sheet['Current Liabilities']
+    metrics_df['Return on Capital'] = income_stmt['EBIT'].div(capital_employed).fillna(0)
+
+    return metrics_df
+
+
 def fetch_financials(ticker):
     stock = yf.Ticker(ticker)
+    income_stmt = stock.income_stmt.T
+    balance_sheet = stock.balancesheet.T
     financials = {
-        'incomestatement': stock.income_stmt.T.reset_index(),
-        'cashflow': stock.cashflow.T.reset_index(),
-        'balancesheet': stock.balancesheet.T.reset_index()
+        'incomestatement': income_stmt,
+        'cashflow': stock.cashflow.T,
+        'balancesheet': balance_sheet,
+        'metrics': compute_metrics(income_stmt, balance_sheet)
     }
-    for key, df in financials.items():
-        df.sort_values(by='index', inplace=True)
     return financials
 
 
