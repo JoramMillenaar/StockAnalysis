@@ -75,7 +75,6 @@ class PlotApp(QMainWindow):
             self.statement_type_combo.setEnabled(True)
             self.list_widget.setEnabled(True)
             self.button.setEnabled(True)
-            self.ax.set_title(ticker + '\'s Financial Metrics Over Time')
             self.canvas.draw()
 
     def update_list_widget(self, statement_type):
@@ -98,11 +97,8 @@ class PlotApp(QMainWindow):
             for i, column in enumerate(selected_items):
                 self.ax.bar(indices + i * bar_width, self.data[statement_type][column], width=bar_width, label=column)
             self.ax.legend()
-            self.ax.set_xticks(indices + bar_width * (num_items - 1) / 2)
+            self.ax.set_xticks(indices)
             self.ax.set_xticklabels([d.strftime('%Y-%m') for d in dates])
-            self.ax.set_xlabel('Date')
-            self.ax.xaxis.set_major_locator(
-                MaxNLocator(integer=True))  # Ensure x-ticks are integer to avoid float indices
             self.canvas.draw()
 
 
