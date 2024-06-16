@@ -2,12 +2,14 @@ import sys
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
                              QPushButton, QComboBox, QLineEdit, QLabel, QHBoxLayout, QTableWidget,
                              QTableWidgetItem, QHeaderView)
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+
+from constants import STATEMENT_TYPES
+from services import fetch_financials_from_yahoo
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -21,14 +23,6 @@ class PlotApp(QMainWindow):
         self.main_widget = QWidget(self)
         self.setCentralWidget(self.main_widget)
         main_layout = QVBoxLayout(self.main_widget)
-
-        # Statement types with user-friendly titles and internal keys
-        self.statement_types = {
-            "Income Statement": "incomestatement",
-            "Cash Flow": "cashflow",
-            "Balance Sheet": "balancesheet",
-            "Metrics": "metrics"
-        }
 
         # Setup UI components
         input_layout = QHBoxLayout()
@@ -50,7 +44,7 @@ class PlotApp(QMainWindow):
 
         # Dropdown to select the type of financial statement
         self.statement_type_combo = QComboBox(self)
-        for name in self.statement_types:
+        for name in STATEMENT_TYPES:
             self.statement_type_combo.addItem(name)
         self.statement_type_combo.setEnabled(False)  # Disabled until data is fetched
         main_layout.addWidget(self.statement_type_combo)
@@ -91,7 +85,7 @@ class PlotApp(QMainWindow):
     def update_display_data(self):
         ticker = self.ticker_input.text().strip().upper()
         if ticker:
-            self.data = fetch_financials_from_yahoo(ticker, self.statement_types)
+            self.data = fetch_financials_from_yahoo(ticker)
             self.update_table_widget(self.statement_type_combo.currentText())
             self.statement_type_combo.setEnabled(True)
             self.table_widget.setEnabled(True)
@@ -100,7 +94,7 @@ class PlotApp(QMainWindow):
 
     def update_table_widget(self, statement_type: str):
         if self.data:
-            df = self.data[self.statement_types[statement_type]]
+            df = self.data[STATEMENT_TYPES[statement_type]]
             self.update_table(df)
 
     def update_table(self, df):
@@ -123,7 +117,7 @@ class PlotApp(QMainWindow):
         return self.table_widget.selectionModel().selectedRows()
 
     def update_bar_plot(self):
-        key = self.statement_types[self.statement_type_combo.currentText()]
+        key = STATEMENT_TYPES[self.statement_type_combo.currentText()]
         df = self.data[key]
 
         if self.selected_rows:
@@ -139,30 +133,6 @@ class PlotApp(QMainWindow):
             self.ax.set_xticks(indices)
             self.ax.set_xticklabels([d.strftime('%Y-%m-%d') for d in df.index])
             self.canvas.draw()
-
-
-def compute_metrics(income_stmt: pd.DataFrame, balance_sheet: pd.DataFrame) -> pd.DataFrame:
-    metrics_df = pd.DataFrame(index=income_stmt.index)
-
-    metrics_df['Operating Margin'] = income_stmt['Operating Income'].div(income_stmt['Total Revenue']).fillna(0)
-    metrics_df['Gross Margin'] = income_stmt['Gross Profit'].div(income_stmt['Total Revenue']).fillna(0)
-    metrics_df['Profit Margin'] = income_stmt['Net Income'].div(income_stmt['Total Revenue']).fillna(0)
-    metrics_df['Return on Assets'] = income_stmt['Net Income'].div(balance_sheet['Total Assets']).fillna(0)
-
-    capital_employed = balance_sheet['Total Assets'] - balance_sheet['Current Liabilities']
-    metrics_df['Return on Capital'] = income_stmt['EBIT'].div(capital_employed).fillna(0)
-
-    return metrics_df
-
-
-def fetch_financials_from_yahoo(ticker: str, statement_types) -> dict[str, pd.DataFrame]:
-    stock = yf.Ticker(ticker)
-    return {
-        statement_types["Income Statement"]: stock.income_stmt.T,
-        statement_types["Cash Flow"]: stock.balancesheet.T,
-        statement_types["Balance Sheet"]: stock.cashflow.T,
-        statement_types["Metrics"]: compute_metrics(stock.income_stmt.T, stock.balancesheet.T)
-    }
 
 
 def main():
