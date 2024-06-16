@@ -22,7 +22,15 @@ class PlotApp(QMainWindow):
         self.setCentralWidget(self.main_widget)
         main_layout = QVBoxLayout(self.main_widget)
 
-        # Horizontal layout for ticker input
+        # Statement types with user-friendly titles and internal keys
+        self.statement_types = {
+            "Income Statement": "incomestatement",
+            "Cash Flow": "cashflow",
+            "Balance Sheet": "balancesheet",
+            "Metrics": "metrics"
+        }
+
+        # Setup UI components
         input_layout = QHBoxLayout()
         main_layout.addLayout(input_layout)
 
@@ -37,12 +45,13 @@ class PlotApp(QMainWindow):
 
         # Button to fetch data
         self.fetch_button = QPushButton('Fetch Data', self)
-        self.fetch_button.clicked.connect(self.update_displayed_data)  # Assuming you have this method implemented
+        self.fetch_button.clicked.connect(self.update_display_data)
         input_layout.addWidget(self.fetch_button)
 
         # Dropdown to select the type of financial statement
         self.statement_type_combo = QComboBox(self)
-        self.statement_type_combo.addItems(['Income Statement', 'Cash Flow', 'Balance Sheet', 'Metrics'])
+        for name in self.statement_types:
+            self.statement_type_combo.addItem(name)
         self.statement_type_combo.setEnabled(False)  # Disabled until data is fetched
         main_layout.addWidget(self.statement_type_combo)
 
@@ -69,51 +78,60 @@ class PlotApp(QMainWindow):
         self.ax = self.figure.add_subplot(111)
         self.show()
 
-    def update_displayed_data(self):
+    @staticmethod
+    def _cell_formatter(key: str, value: float):
+        ratio_indicators = ['Margin', 'Return on', 'Rate', 'Ratio', 'EPS']
+        if any(i in key for i in ratio_indicators):
+            # Format as percentage or leave as is for ratios
+            return f'{value:.2f}%' if 'Rate' in key else f'{value:.2f}'
+        else:
+            # Convert to thousands and format negative values with brackets
+            return f'({abs(value / 1000):,.0f})' if value < 0 else f'{value / 1000:,.0f}'
+
+    def update_display_data(self):
         ticker = self.ticker_input.text().strip().upper()
         if ticker:
-            self.data = fetch_financials(ticker)
-            self.update_table_widget('Income Statement')
+            self.data = fetch_financials_from_yahoo(ticker, self.statement_types)
+            self.update_table_widget(self.statement_type_combo.currentText())
             self.statement_type_combo.setEnabled(True)
             self.table_widget.setEnabled(True)
             self.button.setEnabled(True)
             self.canvas.draw()
 
-    def update_table_widget(self, statement_type):
+    def update_table_widget(self, statement_type: str):
         if self.data:
-            key = statement_type.lower().replace(' ', '')
-            df = self.data[key]
-            self.table_widget.setRowCount(len(df.columns))
-            self.table_widget.setColumnCount(len(df.index))
-            self.table_widget.setHorizontalHeaderLabels([idx.strftime('%Y-%m-%d') for idx in df.index])
-            self.table_widget.setVerticalHeaderLabels(df.columns)
+            df = self.data[self.statement_types[statement_type]]
+            self.update_table(df)
 
-            # Define columns that should not be scaled (percentages or ratios)
-            no_scale_columns = ['Basic EPS', 'Diluted EPS', 'Tax Rate For Calcs', 'Tax Effect Of Unusual Items']
+    def update_table(self, df):
+        self.table_widget.setRowCount(len(df.columns))
+        self.table_widget.setColumnCount(len(df.index))
+        self.table_widget.setHorizontalHeaderLabels([idx.strftime('%Y-%m-%d') for idx in df.index])
+        self.table_widget.setVerticalHeaderLabels(df.columns)
 
-            for i, col_name in enumerate(df.columns):
-                for j, date in enumerate(df.index):
-                    value = df.at[date, col_name]
-                    if col_name in no_scale_columns or statement_type == 'Metrics':
-                        # Format as percentage or leave as is for ratios
-                        item_text = f'{value:.2f}%' if 'Rate' in col_name else f'{value:.2f}'
-                    else:
-                        # Convert to thousands and format negative values with brackets
-                        item_text = f'({abs(value / 1000):,.0f})' if value < 0 else f'{value / 1000:,.0f}'
-                    item = QTableWidgetItem(item_text)
-                    self.table_widget.setItem(i, j, item)
+        self._update_table_values(df)
+
+    def _update_table_values(self, df):
+        for i, col_name in enumerate(df.columns):
+            for j, date in enumerate(df.index):
+                value = df.at[date, col_name]
+                item = QTableWidgetItem(self._cell_formatter(col_name, value))
+                self.table_widget.setItem(i, j, item)
+
+    @property
+    def selected_rows(self):
+        return self.table_widget.selectionModel().selectedRows()
 
     def update_bar_plot(self):
-        selected_rows = self.table_widget.selectionModel().selectedRows()
-        statement_type = self.statement_type_combo.currentText().lower().replace(' ', '')
-        df = self.data[statement_type]
+        key = self.statement_types[self.statement_type_combo.currentText()]
+        df = self.data[key]
 
-        if selected_rows:
+        if self.selected_rows:
             self.ax.clear()
             indices = np.arange(len(df.index))
-            bar_width = 0.8 / len(selected_rows)
+            bar_width = 0.8 / len(self.selected_rows)
 
-            for i, row in enumerate(selected_rows):
+            for i, row in enumerate(self.selected_rows):
                 metric_name = self.table_widget.verticalHeaderItem(row.row()).text()
                 self.ax.bar(indices + i * bar_width, df[metric_name], width=bar_width, label=metric_name)
 
@@ -123,7 +141,7 @@ class PlotApp(QMainWindow):
             self.canvas.draw()
 
 
-def compute_metrics(income_stmt, balance_sheet):
+def compute_metrics(income_stmt: pd.DataFrame, balance_sheet: pd.DataFrame) -> pd.DataFrame:
     metrics_df = pd.DataFrame(index=income_stmt.index)
 
     metrics_df['Operating Margin'] = income_stmt['Operating Income'].div(income_stmt['Total Revenue']).fillna(0)
@@ -137,17 +155,14 @@ def compute_metrics(income_stmt, balance_sheet):
     return metrics_df
 
 
-def fetch_financials(ticker):
+def fetch_financials_from_yahoo(ticker: str, statement_types) -> dict[str, pd.DataFrame]:
     stock = yf.Ticker(ticker)
-    income_stmt = stock.income_stmt.T
-    balance_sheet = stock.balancesheet.T
-    financials = {
-        'incomestatement': income_stmt,
-        'cashflow': stock.cashflow.T,
-        'balancesheet': balance_sheet,
-        'metrics': compute_metrics(income_stmt, balance_sheet)
+    return {
+        statement_types["Income Statement"]: stock.income_stmt.T,
+        statement_types["Cash Flow"]: stock.balancesheet.T,
+        statement_types["Balance Sheet"]: stock.cashflow.T,
+        statement_types["Metrics"]: compute_metrics(stock.income_stmt.T, stock.balancesheet.T)
     }
-    return financials
 
 
 def main():
