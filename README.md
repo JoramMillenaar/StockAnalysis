@@ -1,7 +1,7 @@
 # Stock Analysis
 **A Financial Statement Visualization Tool**
 
-![](example.png)
+![](example.webp)
 
 ## Overview
 This Python application provides a graphical interface to visualize key financial metrics from income statements, cash flows, balance sheets, and computed metrics of publicly traded companies, using data sourced from Yahoo Finance. The application uses PyQt5 for the GUI and Matplotlib for plotting, enabling dynamic selection of ticker symbols and interactive viewing of financial data.
